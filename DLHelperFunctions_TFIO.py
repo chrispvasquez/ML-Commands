@@ -12,6 +12,20 @@ def squeeze(audio, labels):
     #audio = tf.expand_dims(audio, axis=-1)
     return audio, labels
 
+def get_all(waveform, sample_rate):
+    spectrogram = tfio.audio.spectrogram(waveform, nfft=255, window=255, stride=128)
+    mel_spectrogram = tfio.audio.melscale(spectrogram, rate=sample_rate, mels=128, fmin=0, fmax=8000)
+    mel_spectrogram_db = tfio.audio.dbscale(mel_spectrogram, top_db=80)
+    # Compute a stabilized log to get log-magnitude mel-scale spectrograms.
+    log_mel_spectrograms = tf.math.log(mel_spectrogram + 1e-6)
+    # Compute MFCCs from log_mel_spectrograms and take the first 13.
+    mfcc = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrograms)[..., :13]
+
+    all_four = [spectrogram, mel_spectrogram, mel_spectrogram_db, mfcc]
+    #mel_spectrogram_db = all_four[..., tf.newaxis]
+    return all_four
+
+
 def get_spectrogram(waveform):
     spectrogram = tfio.audio.spectrogram(waveform, nfft=255, window=255, stride=128)
     spectrogram = spectrogram[..., tf.newaxis]
@@ -54,6 +68,12 @@ def plot_spectrogram(spectrogram, ax):
     X = np.linspace(0, np.size(spectrogram), num=width, dtype=int)
     Y = range(height)
     ax.pcolormesh(X, Y, log_spec)
+
+# Create Spectrogram dataset from audio files
+def make_four_ds(ds, sr):
+  return ds.map(
+      map_func=lambda audio,label: (get_all(audio, sr), label),
+      num_parallel_calls=tf.data.AUTOTUNE)
 
 # Create Spectrogram dataset from audio files
 def make_melspec_ds(ds, sr):
