@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import tensorflow as tf
-import tensorflow_io as tfio
 import matplotlib.pyplot as plt
 import librosa as lb
 from librosa.display import specshow
@@ -11,6 +10,31 @@ def squeeze(audio, labels):
     audio = tf.squeeze(audio, axis=-1)
     #audio = tf.expand_dims(audio, axis=-1)
     return audio, labels
+
+def get_features(waveform, sample_rate):
+    stfts = tf.signal.stft(waveform, frame_length=255, frame_step=128)
+    spectrogram = tf.abs(stfts)
+
+    num_spectrogram_bins = stfts.shape[-1]
+    lower_edge_hertz, upper_edge_hertz, num_mel_bins = 80.0, 7600.0, 80
+    linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(
+        num_mel_bins, num_spectrogram_bins, sample_rate, lower_edge_hertz,
+        upper_edge_hertz)
+    mel_spectrogram = tf.tensordot(
+        spectrogram, linear_to_mel_weight_matrix, 1)
+    mel_spectrogram.set_shape(spectrogram.shape[:-1].concatenate(
+        linear_to_mel_weight_matrix.shape[-1:]))
+
+    # Compute a stabilized log to get log-magnitude mel-scale spectrograms.
+    log_mel_spectrogram = tf.math.log(mel_spectrogram + 1e-6)
+    # Compute MFCCs from log_mel_spectrograms and take the first 13.
+    mfcc = tf.signal.mfccs_from_log_mel_spectrograms(
+        log_mel_spectrogram)[..., :128]
+
+    features = tf.stack([spectrogram, mel_spectrogram, mfcc], axis=-1)
+    #all_four = tf.squeeze(all_four, axis=1)
+    return features
+
 
 def get_spectrogram(waveform):
     # Convert the waveform to a spectrogram via a STFT.
@@ -83,6 +107,13 @@ def plot_spectrogram(spectrogram, ax):
     X = np.linspace(0, np.size(spectrogram), num=width, dtype=int)
     Y = range(height)
     ax.pcolormesh(X, Y, log_spec)
+
+# Create Spectrogram dataset from audio files
+def make_features_ds(ds, sr):
+  return ds.map(
+      map_func=lambda audio,label: (get_features(audio, sr), label),
+      num_parallel_calls=tf.data.AUTOTUNE)
+
 
 # Create Spectrogram dataset from audio files
 def make_melspec_ds(ds, sr):

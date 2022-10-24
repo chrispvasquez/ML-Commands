@@ -5,6 +5,7 @@ import tensorflow_io as tfio
 import matplotlib.pyplot as plt
 import librosa as lb
 from librosa.display import specshow
+import soundfile as sf
 
 # Drop axis since data is only single channel
 def squeeze(audio, labels):
@@ -12,18 +13,21 @@ def squeeze(audio, labels):
     #audio = tf.expand_dims(audio, axis=-1)
     return audio, labels
 
-def get_all(waveform, sample_rate):
+def get_features(waveform, sample_rate):
     spectrogram = tfio.audio.spectrogram(waveform, nfft=255, window=255, stride=128)
     mel_spectrogram = tfio.audio.melscale(spectrogram, rate=sample_rate, mels=128, fmin=0, fmax=8000)
     mel_spectrogram_db = tfio.audio.dbscale(mel_spectrogram, top_db=80)
-    # Compute a stabilized log to get log-magnitude mel-scale spectrograms.
     log_mel_spectrograms = tf.math.log(mel_spectrogram + 1e-6)
-    # Compute MFCCs from log_mel_spectrograms and take the first 13.
-    mfcc = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrograms)[..., :13]
+    mfcc = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrograms)[..., :128]
 
-    all_four = [spectrogram, mel_spectrogram, mel_spectrogram_db, mfcc]
-    #mel_spectrogram_db = all_four[..., tf.newaxis]
-    return all_four
+    # spectrogram = spectrogram[..., tf.newaxis]
+    # mel_spectrogram = mel_spectrogram[..., tf.newaxis]
+    # mel_spectrogram_db = mel_spectrogram_db[..., tf.newaxis]
+    # mfcc = mfcc[..., tf.newaxis]
+
+    features = tf.stack([spectrogram, mel_spectrogram, mfcc], axis=-1)
+    #all_four = tf.squeeze(all_four, axis=1)
+    return features
 
 
 def get_spectrogram(waveform):
@@ -70,9 +74,9 @@ def plot_spectrogram(spectrogram, ax):
     ax.pcolormesh(X, Y, log_spec)
 
 # Create Spectrogram dataset from audio files
-def make_four_ds(ds, sr):
+def make_features_ds(ds, sr):
   return ds.map(
-      map_func=lambda audio,label: (get_all(audio, sr), label),
+      map_func=lambda audio,label: (get_features(audio, sr), label),
       num_parallel_calls=tf.data.AUTOTUNE)
 
 # Create Spectrogram dataset from audio files
